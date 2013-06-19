@@ -9,6 +9,17 @@
 float ang = 0.0f;
 
 
+
+// Try to do this using VAOs...
+enum VAO_IDs { vaoMesh, NumVAOs };
+enum Buffer_IDs { bufMesh, bufMeshIndex, NumBuffers };
+enum Attrib_IDs { vPosition = 0, vTexCoord = 1, vNormal = 2 };
+enum Shader_IDs { vsTest, fsTest, NumShaders };
+
+GLuint VAOs[NumVAOs];
+GLuint Buffers[NumBuffers];
+GLuint Shaders[NumShaders];
+
 struct Vertex
 {
 	GLfloat pos[3];
@@ -22,12 +33,12 @@ std::vector<GLint> indices;
 
 GLuint vertId;
 GLuint indexId;
+GLuint texId;
+sf::Image tex;
 
 void RawTest::RenderElement(Frames::Renderer *renderer) const
 {
-	Frame::RenderElement(renderer);
-
-	glClear(GL_DEPTH_BUFFER_BIT);
+	// Frame::RenderElement(renderer);
 
 	int vpDimensions[4];
 	glGetIntegerv(GL_VIEWPORT, vpDimensions);
@@ -41,24 +52,18 @@ void RawTest::RenderElement(Frames::Renderer *renderer) const
 
 	glViewport(vpLeft, marginBottom, vpWidth, vpHeight);
 
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-
-	// use our shader, and see if anything breaks in Frames (it did, need to clear the program at the end)
-	glUseProgram(ProgramID);	
-
 	// Projection matrix : 45° Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
 	glm::mat4 Projection = glm::perspective(45.0f, (float)vpWidth / (float)vpHeight, 0.1f, 100.0f);
 	// Camera matrix
 	glm::mat4 View       = glm::lookAt(
-		glm::vec3(4,3,6), // Camera is at (4,3,3), in World Space
+		glm::vec3(2,1,3), // Camera is at (4,3,3), in World Space
 		glm::vec3(0,0,0), // and looks at the origin
 		glm::vec3(0,1,0)  // Head is up (set to 0,-1,0 to look upside-down)
 	);
 	// Model matrix : an identity matrix (model will be at the origin)
 	glm::mat4 Model = glm::mat4(1.0f);  // Changes for each model !
 	Model = glm::rotate(Model, ang, glm::vec3(0.0f, 1.0f, 0.0f));
-	Model = glm::rotate(Model, ang / 2.0f, glm::vec3(1.0f, 0.0f, 0.0f));
+	//Model = glm::rotate(Model, ang / 2.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 
 	ang += 0.1f;
 
@@ -67,61 +72,38 @@ void RawTest::RenderElement(Frames::Renderer *renderer) const
 	glm::mat4 MV4         = View * Model; // Remember, matrix multiplication is the other way around
 	glm::mat3 MV = glm::mat3(MV4);
 
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
 
-	// Send our transformation to the currently bound shader,
-	// in the "MVP" uniform
-	// For each model you render, since the MVP will be different (at least the M part)
-	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MVP[0][0]);
-	glUniformMatrix3fv(MatrixIDMV, 1, GL_FALSE, &MV[0][0]);
+	glBindVertexArray(VAOs[vaoMesh]);
 
-	glDisable(GL_CULL_FACE);
-	/*
+	glUseProgram(ProgramID);
 
-	// 1st attribute buffer : vertices
-	glEnableVertexAttribArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-	glVertexAttribPointer(
-		0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-		3,                  // size
-		GL_FLOAT,           // type
-		GL_FALSE,           // normalized?
-		0,                  // stride
-		(void*)0            // array buffer offset
-	);
+	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MV4[0][0]);
+	glUniformMatrix4fv(MatrixIDMV, 1, GL_FALSE, &Projection[0][0]);
+	glUniformMatrix4fv(MatrixView, 1, GL_FALSE, &View[0][0]);
 
-	// Draw the triangle !
-	glDrawArrays(GL_TRIANGLES, 0, 12*3); // Starting from vertex 0; 3 vertices total -> 1 triangle
- 
-	glDisableVertexAttribArray(0);
+	GLint texloc = glGetUniformLocation(ProgramID, "color_texture"); // get the name of the sampler in the shader
+	glUniform1i(texloc, 0); // tell the sampler to use texture unit 0
 
-	*/
-
-	glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-    glEnableVertexAttribArray(2);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vertId);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texcoord));
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexId);
+	glActiveTexture(GL_TEXTURE0); // Activate texture unit 0...
+	glBindTexture(GL_TEXTURE_2D, texId); // ...and bind it to the texture we want to use
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
-    glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
-    glDisableVertexAttribArray(2);
+	glUseProgram(0);
 
-	glUseProgram(0);	
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindVertexArray(0);
 
 	glDisable(GL_DEPTH_TEST);
+	glDepthFunc(GL_ALWAYS);
 
 	glViewport(vpDimensions[0], vpDimensions[1], vpDimensions[2], vpDimensions[3]);
 
-
-	renderer->RebindBuffers();
+	// renderer->RebindBuffers();
 }
 
 
@@ -129,8 +111,10 @@ void RawTest::Init()
 {
 	ang = 0.0f;
 
-	GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
-	GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+	// BUILD THE SHADER PROGRAM
+
+	Shaders[vsTest] = glCreateShader(GL_VERTEX_SHADER);
+	Shaders[fsTest] = glCreateShader(GL_FRAGMENT_SHADER);
  
 	string vertex_file_path = "test.vs";
 	string fragment_file_path = "test.ps";
@@ -161,34 +145,34 @@ void RawTest::Init()
 	// Compile Vertex Shader
 	cout << "Compiling shader : " << vertex_file_path.c_str() << endl;
 	char const * VertexSourcePointer = VertexShaderCode.c_str();
-	glShaderSource(VertexShaderID, 1, &VertexSourcePointer , NULL);
-	glCompileShader(VertexShaderID);
+	glShaderSource(Shaders[vsTest], 1, &VertexSourcePointer , NULL);
+	glCompileShader(Shaders[vsTest]);
  
 	// Check Vertex Shader
-	glGetShaderiv(VertexShaderID, GL_COMPILE_STATUS, &Result);
-	glGetShaderiv(VertexShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	glGetShaderiv(Shaders[vsTest], GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(Shaders[vsTest], GL_INFO_LOG_LENGTH, &InfoLogLength);
 	std::vector<char> VertexShaderErrorMessage(InfoLogLength);
-	glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
+	glGetShaderInfoLog(Shaders[vsTest], InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
 	fprintf(stdout, "%s\n", &VertexShaderErrorMessage[0]);
  
 	// Compile Fragment Shader
 	cout << "Compiling shader : " << fragment_file_path.c_str() << endl;
 	char const * FragmentSourcePointer = FragmentShaderCode.c_str();
-	glShaderSource(FragmentShaderID, 1, &FragmentSourcePointer , NULL);
-	glCompileShader(FragmentShaderID);
+	glShaderSource(Shaders[fsTest], 1, &FragmentSourcePointer , NULL);
+	glCompileShader(Shaders[fsTest]);
  
 	// Check Fragment Shader
-	glGetShaderiv(FragmentShaderID, GL_COMPILE_STATUS, &Result);
-	glGetShaderiv(FragmentShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	glGetShaderiv(Shaders[fsTest], GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(Shaders[fsTest], GL_INFO_LOG_LENGTH, &InfoLogLength);
 	std::vector<char> FragmentShaderErrorMessage(InfoLogLength);
-	glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
+	glGetShaderInfoLog(Shaders[fsTest], InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
 	fprintf(stdout, "%s\n", &FragmentShaderErrorMessage[0]);
  
 	// Link the program
 	fprintf(stdout, "Linking program\n");
 	ProgramID = glCreateProgram();
-	glAttachShader(ProgramID, VertexShaderID);
-	glAttachShader(ProgramID, FragmentShaderID);
+	glAttachShader(ProgramID, Shaders[vsTest]);
+	glAttachShader(ProgramID, Shaders[fsTest]);
 	glLinkProgram(ProgramID);
  
 	// Check the program
@@ -198,87 +182,35 @@ void RawTest::Init()
 	glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
 	fprintf(stdout, "%s\n", &ProgramErrorMessage[0]);
  
-	glDeleteShader(VertexShaderID);
-	glDeleteShader(FragmentShaderID);
+	glDeleteShader(Shaders[vsTest]);
+	glDeleteShader(Shaders[fsTest]);
  
 	cout << "Program ID: " << ProgramID << endl;
 
-	MatrixID = glGetUniformLocation(ProgramID, "MVP");
-	MatrixIDMV = glGetUniformLocation(ProgramID, "MV");
+	MatrixID = glGetUniformLocation(ProgramID, "modelView");
+	MatrixIDMV = glGetUniformLocation(ProgramID, "projection");
+	MatrixView = glGetUniformLocation(ProgramID, "view");
 
 
-	GLuint VertexArrayID;
-	glGenVertexArrays(1, &VertexArrayID);
-	glBindVertexArray(VertexArrayID);
+	// LOAD THE TEXTURE
 
-	// An array of 3 vectors which represents 3 vertices
-	/*
-	static const GLfloat g_vertex_buffer_data[] = 
-	{
-		-1.0f, -1.0f, 0.0f,
-		1.0f, -1.0f, 0.0f,
-		0.0f,  1.0f, 0.0f,
-	};
-	*/
+	tex.loadFromFile("Metal.png");
+    glGenTextures(1,&texId);
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGB,128,128,0,GL_RGBA,GL_UNSIGNED_BYTE,tex.getPixelsPtr());
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-	static const GLfloat g_vertex_buffer_data[] = {
-		-1.0f,-1.0f,-1.0f, // triangle 1 : begin
-		-1.0f,-1.0f, 1.0f,
-		-1.0f, 1.0f, 1.0f, // triangle 1 : end
-		1.0f, 1.0f,-1.0f, // triangle 2 : begin
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f,-1.0f, // triangle 2 : end
-		1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f,-1.0f,
-		1.0f,-1.0f,-1.0f,
-		1.0f, 1.0f,-1.0f,
-		1.0f,-1.0f,-1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f,-1.0f,
-		1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		-1.0f,-1.0f, 1.0f,
-		1.0f,-1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f,
-		1.0f,-1.0f,-1.0f,
-		1.0f, 1.0f,-1.0f,
-		1.0f,-1.0f,-1.0f,
-		1.0f, 1.0f, 1.0f,
-		1.0f,-1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f,
-		1.0f, 1.0f,-1.0f,
-		-1.0f, 1.0f,-1.0f,
-		1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f, 1.0f,
-		1.0f,-1.0f, 1.0f
-	};
 
- 
-	// Generate 1 buffer, put the resulting identifier in vertexbuffer
-	glGenBuffers(1, &vertexbuffer);
- 
-	// The following commands will talk about our 'vertexbuffer' buffer
-	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
- 
-	// Give our vertices to OpenGL.
-	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
-
+	// LOAD THE MESH
 
 	Assimp::Importer importer;
 
-	const aiScene* scene = importer.ReadFile("ship.obj", 
+	const aiScene* scene = importer.ReadFile("wildtide2.obj", 
         aiProcess_CalcTangentSpace       | 
-        // aiProcess_Triangulate            |
+        aiProcess_Triangulate            |
         // aiProcess_JoinIdenticalVertices  |
 		aiProcess_FlipWindingOrder		 |
-		// aiProcess_GenNormals			 |
+		aiProcess_GenNormals			 |
         aiProcess_SortByPType);
   
 	cout << scene->mNumMeshes << " meshes" << endl;
@@ -318,13 +250,28 @@ void RawTest::Init()
 		}
 	}
 
-	glGenBuffers(1, &vertId);
-	glGenBuffers(1, &indexId);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertId);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexId);
+	// SETUP THE VAO FOR DRAWING THE MESH
+
+	glGenVertexArrays(NumVAOs, VAOs);
+	glGenBuffers(NumBuffers, Buffers);
+
+	// Populate vaoMesh with all of the state needed to draw the mesh
+	glBindVertexArray(VAOs[vaoMesh]);
+	glBindBuffer(GL_ARRAY_BUFFER, Buffers[bufMesh]);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Buffers[bufMeshIndex]);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(vPosition, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
+    glVertexAttribPointer(vTexCoord, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texcoord));
+    glVertexAttribPointer(vNormal, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+
+	glEnableVertexAttribArray(vPosition);
+    glEnableVertexAttribArray(vTexCoord);
+    glEnableVertexAttribArray(vNormal);
+
+	glBindVertexArray(0);
 }
 
 

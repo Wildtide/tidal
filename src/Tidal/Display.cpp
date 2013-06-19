@@ -37,6 +37,7 @@ namespace Tidal
 	void Display::RenderFrame()
 	{
 		renderWindow->clear();
+		glClear(GL_DEPTH_BUFFER_BIT);
 		/*
 		sf::Font font;
 		font.loadFromFile("DroidSans.ttf");
